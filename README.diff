@@ -1,0 +1,153 @@
+diff --git a/README_old b/README.md
+index a76e6b2..c0d5b8a 100644
+--- a/README_old
++++ b/README.md
+@@ -1,68 +1,75 @@
+-About 5 KB / 850 words.
+-
+-```md
+ # Buraco CLI — Design Specification
+ 
+ ## Purpose
+ 
+-Implement a local, turn-based command-line program for one complete hand of open-information **Buraco Aberto**. Four human players share the terminal; the program enforces the rules, tracks score for the hand, and shows the active player's private hand plus every public game state.
++Implement a local, turn-based Python command-line program for Windows for one complete hand of **Buraco Aberto**. Four human players share the terminal; the program enforces the rules, tracks score for the hand, and shows the active player's private hand plus every public game state. Keep the rules engine shared so a planned in-browser GUI can use the same rules.
+ 
+ ## Fixed game format
+ 
+ - Four players, in two partnerships: `Team 1` (players 1 and 3) and `Team 2` (players 2 and 4).
+-- Two standard decks. By default jokers are excluded; the `USE_JOKERS` configuration constant optionally adds them.
++- Two standard decks. By default jokers are excluded; `USE_JOKERS` optionally adds them.
+ - Each player is dealt 11 cards. Two 11-card *mortos* are set aside. The remainder is the stock; one card begins the face-up discard pile.
+-- Each team may take only one morto.
+-- A turn is: take from stock **or the entire open discard pile**, optionally meld/add cards, then discard exactly one card. Taking the discard pile has no immediate-meld requirement.
+-- A player who empties their hand by melding, rather than a final discard, immediately takes their team’s available morto and may play from it during that turn. If the team has already taken its morto, they may instead end the hand.
+-- A player may go out by melding all remaining cards and/or by making a final discard. A team can go out only after it has taken its morto and, when `REQUIRE_CLEAN_CANASTRA_TO_GO_OUT` is enabled, owns a clean canastra.
+-- If the stock becomes empty before either morto has been taken, shuffle the first unclaimed morto into a new stock. The remaining morto stays available normally. If no legal draw is available afterwards, end the hand and score it.
++- Each team may take only one morto. A player takes the first available morto; mortos are not assigned to teams.
++- A turn is: take from stock **or the entire open discard pile**, optionally meld/add cards, then discard exactly one card, unless a legal go-out ends the hand first. Taking the discard pile has no immediate-meld requirement.
++- A player who empties their hand by melding immediately takes a morto if their team has not taken one and one is available, and may continue playing during that turn until discarding or legally going out. Emptying the hand by discarding also grants an available morto, but ends the turn; the player must wait until their next turn to play it.
++- A player may go out by melding all remaining cards and/or by making a final discard of any card, including a two or joker. A team must have taken its morto, unless no morto remains available, and must own a clean canastra when `REQUIRE_CLEAN_CANASTRA_TO_GO_OUT` is enabled. Reject an entire move that empties the hand when neither taking a morto nor going out is permitted.
++- Drawing the last stock card does not immediately convert a morto into stock. The player completes their turn and may claim an available morto. At turn end, if stock is empty, shuffle the first remaining available morto into a new stock, regardless of whether another morto has been taken. If none remains, end and score the hand; no further discard-pile turns occur.
++- End and score the hand after `NO_PROGRESS_TURN_LIMIT` consecutive completed turns without drawing from stock, laying down or adding cards, or taking a morto. Any such action resets the counter; taking the discard pile alone does not. The default limit is 12 turns.
+ 
+ ## Legal melds
+ 
+-- A run is three or more ascending cards of one suit. Aces may be low or high; every run is validated against one non-wrapping interval, and a wild may fill a missing rank in an ace-high run.
+-- An ace set is three or more aces; it may contain 2s and optional jokers as wild cards.
+-- A `2` may be used as a wild card; a suited `2` in its natural run position is natural instead. A joker, if enabled, is always wild.
+-- A meld with seven or more cards is a *canastra*. A canastra with no cards used as wilds is clean; otherwise it is dirty.
++- A run is three or more ascending cards of one suit. Aces may be low or high, and a run may span `A–2–3–…–Q–K–A` using both ace copies. No other wrapping is allowed: `K–A–2` (or `2–A–K`) is invalid. A wild may fill a missing rank, including in an ace-high run.
++- An ace set contains at least three cards: three natural aces, or two natural aces and one wild. It may contain any or all eight natural aces, including duplicate suits.
++- Each meld, whether a run or ace set, may contain at most one card used as a wild. Together with the minimum meld length, this ensures at least two natural cards.
++- A `2` may be used as a wild card; a suited `2` in its natural run position is natural instead. An extra suited two may be wild while another occupies the natural position. A joker, if enabled, is always wild.
++- Prefer an arrangement using the two naturally whenever possible. Revalidate and rearrange the whole meld when cards are added: wild positions are not locked, and a suited two may become natural. For example, adding `6h` to `2h 3h 4h` is legal because the two can represent `5h`.
++- Players may only extend existing melds and rearrange cards within that same meld. They may not remove cards, split melds, or combine melds. A partnership may have multiple runs of the same suit and multiple ace sets.
++- A meld with seven or more cards is a *canastra*. A canastra with no cards used as wilds is clean; otherwise it is dirty. Clean/dirty labels apply only to canastras. Adding cards may turn a dirty canastra into a clean one.
+ 
+ ## Vulnerability and scoring
+ 
+-- `VULNERABILITY_THRESHOLD = 1500` and `VULNERABILITY_MINIMUM_MELD = 75` are source-level constants.
+-- Once a team reaches the threshold, its first meld play must total at least the minimum card-point value. Multiple new melds may be submitted together in that one play using `|`.
++- `VULNERABILITY_THRESHOLD = 1500` and `VULNERABILITY_MINIMUM_MELD = 75` are configurable defaults.
++- Determine each team's vulnerability from its prior score at hand start; vulnerability does not change during the hand. A team at or above the threshold must make its first meld play total at least the minimum card-point value. Multiple new melds may be submitted together in that one play using `|`.
+ - Card values: ace = 15; 2, joker, and 8 through king = 10; 3 through 7 = 5.
+-- Clean canastra = +200; dirty canastra = +100; going out = +100; unclaimed morto = −100; cards remaining in a team’s hands are negative.
+-- `ALLOW_A_TO_K_CLEAN_CANASTRA` and `ALLOW_A_TO_A_CLEAN_CANASTRA` control the special +500 and +1,000 bonuses respectively.
+-- The program plays and scores one hand only. Cumulative match scoring is out of scope, though the engine accepts prior team scores for vulnerability.
++- All cards in table melds score their individual values, in addition to canastra bonuses. Clean canastra = +200; dirty canastra = +100; going out = +100; a team that never took a morto = −100, including when its morto became stock; cards remaining in a team's hands are negative. For example, a clean `2–3–4–5–6–7–8` scores 245 points.
++- `ALLOW_A_TO_K_CLEAN_CANASTRA` and `ALLOW_A_TO_A_CLEAN_CANASTRA` enable the special +500 and +1,000 bonuses respectively. Both are disabled by default, so their special bonus contribution is zero and ordinary canastra scoring applies. When enabled, the applicable special bonus replaces the +200 clean-canastra bonus rather than adding to it.
++- The program plays and scores one hand only. Cumulative match scoring is out of scope, though the engine accepts prior team scores for vulnerability. Equal final hand scores produce a draw.
++
++## Configuration and startup
+ 
+-## Configuration constants
++Source-level defaults:
+ 
+ ```python
+ USE_JOKERS = False
+ REQUIRE_CLEAN_CANASTRA_TO_GO_OUT = True
+ VULNERABILITY_THRESHOLD = 1500
+ VULNERABILITY_MINIMUM_MELD = 75
+-ALLOW_A_TO_K_CLEAN_CANASTRA = True
+-ALLOW_A_TO_A_CLEAN_CANASTRA = True
++ALLOW_A_TO_K_CLEAN_CANASTRA = False
++ALLOW_A_TO_A_CLEAN_CANASTRA = False
++NO_PROGRESS_TURN_LIMIT = 12
+ ```
+ 
++After startup, prompt for game options using these defaults, both teams' prior scores, and an optional random seed for reproducible deals. A blank seed produces a random deal. Once setup is complete, `start` begins the hand. Saving and resuming are out of scope.
++
+ ## Terminal display
+ 
+-At the beginning of each player’s turn, clear or visually separate the prior turn and show:
++At the beginning of each player's turn, clear or visually separate the prior turn and show:
+ 
+ 1. Active player and team.
+-2. That player’s numbered, sorted hand.
++2. That player's numbered, sorted hand.
+ 3. Stock count and full discard pile, with top clearly marked.
+-4. Team 1’s melds and Team 2’s melds separately, including clean/dirty and canastra status.
+-5. Each morto’s state: available, taken by a team, or moved to stock.
+-6. Vulnerability state and the active team’s current hand score.
++4. Team 1's melds and Team 2's melds separately, including canastra status and clean/dirty labels for canastras.
++5. Each morto's state: available, taken by a team, or moved to stock.
++6. Vulnerability state and the active team's current hand score.
+ 
+-Only the active player’s hand is displayed; all table information is public.
++Only the active player's hand is displayed; all table information is public. Do not require a “press Enter when ready” handoff prompt.
+ 
+ ## Command interface
+ 
+-Commands use card selectors such as `3s`, `10h`, and `ad`. Repeat a selector to choose both copies when necessary.
++Commands use case-insensitive card selectors such as `3s`, `10h`, `ad`, and `Jok` for a joker. Repeat a selector to choose both copies when necessary. Automatically select either matching copy; identical copies are interchangeable for play.
+ 
+ ```text
++start
+ draw stock
+ take discard
+ meld <card> <card> <card> [...] [| <card> <card> <card> [...]]
+@@ -73,19 +80,20 @@ help
+ quit
+ ```
+ 
+-- `draw stock` or `take discard` is required once per turn before any discard.
++- `start` begins the hand after setup.
++- `draw stock` or `take discard` is required exactly once per turn before melding, adding cards, or discarding.
+ - `meld` creates one or more valid new partnership melds; `|` separates melds that must be laid down together. A vulnerable team's opening meld play must meet the minimum as a whole; it cannot build toward the minimum with separate commands.
+-- `add` extends an existing partnership meld after the opening requirement is met.
+-- `discard` removes exactly one card, ends the turn, and advances clockwise.
++- `add` extends one existing partnership meld with one or more cards after the opening requirement is met. Each command has exactly one target meld.
++- `discard` removes exactly one card, ends the turn, and advances clockwise unless the hand ends.
+ - `show` redraws state and `help` lists syntax; neither alters the turn.
+-- `quit` exits only after confirmation. There is no rule-bypass command.
++- `quit` exits only after confirmation; if a hand is in progress, calculate and display scores for table melds and remaining hands, with applicable bonuses and penalties, before exiting. There is no rule-bypass command.
+ 
+ ## Engine model and validation
+ 
+ - `Card`: immutable identity, rank, suit, optional joker flag.
+-- `Meld`: type (`run` or `ace_set`), ordered cards, wild-card positions, and derived clean/dirty/canastra/bonus properties.
++- `Meld`: type (`run` or `ace_set`), ordered cards, wild-card positions, and derived canastra/clean/dirty/bonus properties.
+ - `TeamState`: players, melds, morto state, prior score, and whether its vulnerable opening requirement has been met.
+-- `GameState`: stock, discard pile, two mortos, four hands, teams, active player, turn phase, and end/scoring state.
++- `GameState`: stock, discard pile, two mortos, four hands, teams, active player, turn phase, consecutive no-progress turn count, and end/scoring state.
+ - Every state-changing command is transactional: validate first, then mutate.
+ - Invalid commands leave state unchanged and provide a concise explanation.
+ - The deck is conserved: every card exists in exactly one location.
+@@ -93,9 +101,10 @@ quit
+ ## Acceptance checks
+ 
+ - Deal and display a reproducible hand when a seed is supplied.
+-- Reject illegal draws, malformed runs/ace sets, invalid extensions, and discards before a draw.
+-- Allow taking and continuing to play from a morto in the same turn.
+-- Enforce one morto per team and move the first unclaimed morto into stock in the specified stock-exhaustion case.
+-- Enforce vulnerability minimums and go-out requirements.
+-- At hand end, show a complete scoring breakdown and winner.
+-```
++- Reject illegal draws, malformed runs/ace sets, invalid extensions, and melding, adding, or discarding before a draw or discard pickup.
++- Enforce the one-wild limit and allow rearrangement when extending a meld, including cleaning a dirty canastra.
++- Allow taking and continuing to play from a morto in the same turn when obtained by melding; end the turn when obtained by discarding.
++- Enforce one morto per team and replenish stock from the first available morto at turn end, allowing the last-stock-card player to claim it first.
++- End after the final stock turn when no morto is available, or after 12 consecutive no-progress turns with the default configuration.
++- Enforce vulnerability minimums and go-out requirements, including the exception when no morto remains available.
++- At hand end or confirmed quit, show a complete scoring breakdown and winner or draw.
